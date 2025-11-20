@@ -2,6 +2,9 @@ modded class SCR_PlayerController
 {
 	override void InitializeRadios(IEntity to)
 	{
+		if (!CVON_VONGameModeComponent.GetInstance())
+			return;
+		
 		if (GetGame().GetPlayerController())
 		{
 			SCR_VONController vonController = SCR_VONController.Cast(GetGame().GetPlayerController().FindComponent(SCR_VONController));
@@ -9,8 +12,7 @@ modded class SCR_PlayerController
 		}
 		m_aRadios.Clear();
 		//Reforger Lobby bs
-		m_aLocalActiveVONEntries.Clear();
-		m_aLocalActiveVONEntriesIds.Clear();
+		m_aLocalEntries.Clear();
 		array<RplId> radios = CVON_VONGameModeComponent.GetInstance().GetRadios(to);
 		if (!radios || radios.Count() == 0)
 		{
@@ -74,14 +76,18 @@ modded class SCR_PlayerController
 		}
 	}
 	
-	void WriteRadioJSON(IEntity entity)
+	void WriteRadioJSON(IEntity entity)	
 	{
 		if (!GetGame().GetPlayerController())
+			return;
+		if (entity != SCR_PlayerController.GetLocalControlledEntity())
 			return;
 		SCR_JsonSaveContext VONSave = new SCR_JsonSaveContext();
 		ref array<RplId> radios = CVON_VONGameModeComponent.GetInstance().GetRadios(entity);
 		if (!radios)
 			VONSave.SaveToFile("$profile:/RadioData.json");
+		string radioFreqs = "";
+		string factionKeys = "";
 		foreach (RplId radio: radios)
 		{
 			IEntity radioEntity = RplComponent.Cast(Replication.FindItem(radio)).GetEntity();
@@ -98,7 +104,10 @@ modded class SCR_PlayerController
 			else
 				VONSave.WriteValue("FactionKey", "");
 			VONSave.EndObject();
+			radioFreqs += radioComp.m_sFrequency + "|";
+			factionKeys += radioComp.m_sFactionKey + "|";
 		}
+		SCR_PlayerController.Cast(GetGame().GetPlayerController()).UpdateFreqArray(radioFreqs, factionKeys);
 		VONSave.SaveToFile("$profile:/RadioData.json");
 	}
 }
