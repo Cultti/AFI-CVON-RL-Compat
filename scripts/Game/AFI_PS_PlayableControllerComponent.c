@@ -5,7 +5,7 @@ modded class PS_PlayableControllerComponent
 		return;
 	}
 	
-	override void LobbyVoNRadioEnable()
+	override void LobbyVoNFactionEnable()
 	{	
 		return;
 	}
