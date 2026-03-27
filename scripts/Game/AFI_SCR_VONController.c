@@ -8,7 +8,7 @@ modded class SCR_VONController
 			outRight = 1;
 			silencedDecibels = 0;
 		}
-		else 
+		else
 		{
 			outLeft = 0;
 			outRight = 0;
@@ -18,12 +18,20 @@ modded class SCR_VONController
 	
 	protected bool IsInOurVONRoom(int playerId)
 	{
-		return PS_VoNRoomsManager.GetInstance().GetPlayerRoom(playerId) == PS_VoNRoomsManager.GetInstance().GetPlayerRoom(SCR_PlayerController.GetLocalPlayerId());
+		PS_VoNRoomsManager rooms = PS_VoNRoomsManager.GetInstance();
+		if (!rooms)
+			return false;
+		return rooms.GetPlayerRoom(playerId) == rooms.GetPlayerRoom(SCR_PlayerController.GetLocalPlayerId());
 	}
 	
 	protected bool IsMuted(int playerId)
 	{
-		SocialComponent socialComp = SocialComponent.Cast(GetGame().GetPlayerController().FindComponent(SocialComponent));
+		IEntity pc = GetGame().GetPlayerController();
+		if (!pc)
+			return false;
+		SocialComponent socialComp = SocialComponent.Cast(pc.FindComponent(SocialComponent));
+		if (!socialComp)
+			return false;
 		return socialComp.IsMuted(playerId);
 	}
 	
@@ -43,9 +51,13 @@ modded class SCR_VONController
 		if (playerId < 1)
 			return false;
 		
+		PS_GameModeCoop gameMode = getGameMode();
+		if (!gameMode)
+			return false;
+		
 		// While in game we are required to check if the player has faction.
 		// If the player doesn't have faction he is in spectator
-		if (getGameMode().GetState() == SCR_EGameModeState.GAME)
+		if (gameMode.GetState() == SCR_EGameModeState.GAME)
 		{
 			SCR_Faction faction = SCR_Faction.Cast(SCR_FactionManager.SGetPlayerFaction(playerId));
 			if (!faction)
@@ -69,6 +81,9 @@ modded class SCR_VONController
 			return;
 		if (!m_PlayerController)
 			m_PlayerController = SCR_PlayerController.Cast(GetGame().GetPlayerController());
+		
+		if (!m_BaseGamemode)
+			m_BaseGamemode = SCR_BaseGameMode.Cast(GetGame().GetGameMode());
 		
 		m_Player = m_PlayerController.GetControlledEntity();
 		
@@ -115,20 +130,19 @@ modded class SCR_VONController
 		
 			if (container.m_SoundSource)
 			{
-				int maxDistance = m_VONGameModeComponent.GetPlayerVolume(playerId);
+				int volume = m_VONGameModeComponent.GetPlayerVolume(playerId);
+				int maxDistance = volume;
 				maxDistance *= maxDistance;
-				container.m_iVolume = m_VONGameModeComponent.GetPlayerVolume(playerId);
+				container.m_iVolume = volume;
 				
 				float distance = vector.DistanceSq(container.m_SoundSource.GetOrigin(), m_Camera.GetOrigin());
-				// AFI MODDED START 1 line
+				// AFI MODDED START: allow spectator entries to bypass distance cull
 				if (distance < maxDistance || container.m_bIsSpectator)
 					container.m_fDistanceToSender = distance;
 				else
 					container.m_fDistanceToSender = -1;
-				container.m_iVolume = m_VONGameModeComponent.GetPlayerVolume(playerId);
 			}
-			
-		}
+		} // end foreach m_aLocalEntries
 		
 		foreach (int playerId: m_PlayerIdTemp)
 		{
@@ -144,7 +158,6 @@ modded class SCR_VONController
 				if (m_PlayerController.m_aLocalEntries.Contains(playerId))
 				{
 					//If this VON Transmission is radio, don't do shit
-					
 					if (m_PlayerController.m_aLocalEntries.Get(playerId).m_eVonType == CVON_EVONType.RADIO)
 						continue;
 					m_PlayerController.m_aLocalEntries.Remove(playerId);
@@ -155,7 +168,7 @@ modded class SCR_VONController
 			}
 			else
 			{
-				// AFI MODDED START
+				// AFI MODDED START: spectator room handling
 				if (isSpectating(playerId))
 				{
 					if (localInSpec && IsInOurVONRoom(playerId))
@@ -176,29 +189,28 @@ modded class SCR_VONController
 							m_PlayerController.m_aLocalEntries.Insert(playerId, container);
 						}
 					}
-					else 
+					else
 					{
-						// If target player in spec and we are not or they are not in our room, we can safely remove them from our list.
+						// If target is spectator and we aren't (or different room), remove.
 						if (m_PlayerController.m_aLocalEntries.Contains(playerId))
-						{
 							m_PlayerController.m_aLocalEntries.Remove(playerId);
-						}
 					}
 					
 					continue;
 				}
 				else
 				{
-					// Just ensures that if there was anyone marked as spectator they will be marked now non spectators
+					// Ensure a previously-spectator entry is cleared.
 					if (m_PlayerController.m_aLocalEntries.Contains(playerId))
-					{
 						m_PlayerController.m_aLocalEntries[playerId].m_bIsSpectator = false;
-					}
 				}
 				// AFI MODDED END
 				
-				SCR_CharacterControllerComponent charCont = SCR_CharacterControllerComponent.Cast(ChimeraCharacter.Cast(player).GetCharacterController());
-				if (charCont.IsDead() || charCont.IsUnconscious())
+				ChimeraCharacter chimeraChar = ChimeraCharacter.Cast(player);
+				if (!chimeraChar)
+					continue;
+				SCR_CharacterControllerComponent charCont = SCR_CharacterControllerComponent.Cast(chimeraChar.GetCharacterController());
+				if (!charCont || charCont.IsDead() || charCont.IsUnconscious())
 					if (m_PlayerController.m_aLocalEntries.Contains(playerId))
 					{
 						m_PlayerController.m_aLocalEntries.Remove(playerId);
@@ -257,17 +269,20 @@ modded class SCR_VONController
 				else
 					DeactivateCVON();
 				return;
-			}
-			m_PlayerController.BroadcastLocalVONToServer(m_CurrentVONContainer, m_PlayerController.GetPlayerId(), m_CurrentVONContainer.m_iRadioId);
-					
+			}	
 		}
 		
-		//Our plugin only checks every 50ms
-		if (m_fVONSaveBuffer >= 0.05)
+		if (!m_bHasBroadcasted && m_bIsBroadcasting)
 		{
-			WriteJSON();
-			m_fVONSaveBuffer = 0;
+			m_PlayerController.BroadcastLocalVONToServer(m_CurrentVONContainer, m_PlayerController.GetPlayerId(), m_CurrentVONContainer.m_iRadioId);
+			m_bHasBroadcasted = true;
 		}
-		else m_fVONSaveBuffer += timeSlice;
+		
+		// WriteJSON runs every tick; server data read is throttled.
+		m_fServerDataBuffer += timeSlice;
+		bool checkServerData = (m_fServerDataBuffer >= 1.0);
+		if (checkServerData)
+			m_fServerDataBuffer = 0;
+		WriteJSON(checkServerData);
 	}
 }
