@@ -31,6 +31,8 @@ modded class SCR_PlayerController
 				continue;
 			
 			CVON_RadioComponent radioComp = CVON_RadioComponent.Cast(radioObject.FindComponent(CVON_RadioComponent));
+			if (!radioComp)
+				continue;
 			
 			
 			switch (radioComp.m_eRadioType)
